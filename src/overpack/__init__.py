@@ -62,12 +62,13 @@ class DataComponent(Component):
         csv_path = first_child_with_suffix(path, ".csv")
         if csv_path is None:
             raise ValueError(f"Expected a .csv file in data component {str(path)}.")
-        records = list(csv.DictReader(csv_path.open()))
         xml_path = first_child_with_suffix(path, ".xml")
         if xml_path is None:
             raise ValueError(f"Expected a .xml file in data component {str(path)}.")
         return cls(
-            number=path.stem, data=records, metadata=ET.fromstring(xml_path.read_text())
+            number=path.stem,
+            data=list(csv.DictReader(csv_path.open())),
+            metadata=ET.fromstring(xml_path.read_text()),
         )
 
 
@@ -77,8 +78,7 @@ class Md5(msgspec.Struct):
 
     @classmethod
     def load(cls, path: ZipPath) -> Md5:
-        hash_, component_info = path.read_text().split()
-        return cls(hash=hash_, component_info=component_info)
+        return cls(*path.read_text().split())
 
 
 class ConfigurationComponent(Component):
