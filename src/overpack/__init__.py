@@ -16,16 +16,20 @@ from meddle import Command
 Record: TypeAlias = dict[str, str]  # TODO: maybe support more data types?
 
 
+def first_child_with_suffix(path: ZipPath, suffix: str) -> ZipPath | None:
+    return next((p for p in path.iterdir() if p.suffix.lower() == suffix), None)
+
+
 def is_data_component(path: ZipPath) -> bool:
-    return next(
-        (p for p in path.iterdir() if p.suffix.lower() == ".csv"), False
-    ) and next((p for p in path.iterdir() if p.suffix.lower() == ".xml"), False)
+    return first_child_with_suffix(path, ".csv") and first_child_with_suffix(
+        path, ".xml"
+    )
 
 
 def is_configuration_component(path: ZipPath) -> bool:
-    return next(
-        (p for p in path.iterdir() if p.suffix.lower() == ".mdl"), False
-    ) and next((p for p in path.iterdir() if p.suffix.lower() == ".md5"), False)
+    return first_child_with_suffix(path, ".mdl") and first_child_with_suffix(
+        path, ".md5"
+    )
 
 
 class JavaSdkCode(msgspec.Struct):
@@ -57,11 +61,11 @@ class DataComponent(Component):
 
     @classmethod
     def load(cls, path: ZipPath) -> DataComponent:
-        csv_path = next((p for p in path.iterdir() if p.suffix.lower() == ".csv"), None)
+        csv_path = first_child_with_suffix(path, ".csv")
         if csv_path is None:
             raise ValueError(f"Expected a .csv file in data component {str(path)}.")
         records = list(csv.DictReader(csv_path.open()))
-        xml_path = next((p for p in path.iterdir() if p.suffix.lower() == ".xml"), None)
+        xml_path = first_child_with_suffix(path, ".xml")
         if xml_path is None:
             raise ValueError(f"Expected a .xml file in data component {str(path)}.")
         return cls(
@@ -85,12 +89,12 @@ class ConfigurationComponent(Component):
 
     @classmethod
     def load(cls, path: ZipPath) -> ConfigurationComponent:
-        mdl_path = next((p for p in path.iterdir() if p.suffix.lower() == ".mdl"), None)
+        mdl_path = first_child_with_suffix(path, ".mdl")
         if mdl_path is None:
             raise ValueError(
                 f"Expected a .mdl file in configuration component {str(path)}."
             )
-        md5_path = next((p for p in path.iterdir() if p.suffix.lower() == ".md5"), None)
+        md5_path = first_child_with_suffix(path, ".md5")
         if md5_path is None:
             raise ValueError(
                 f"Expected a .md5 file in configuration component {str(path)}."
@@ -132,7 +136,8 @@ class Vpk(msgspec.Struct):
                     f"{str(component_dir)} is neither a data nor a configuration component."
                 )
             components.append(component)
-
+        # Sadly `zipfile.Path` does not implement `pathlib.Path.rglob`, so we
+        # are forced to recurse manually
         codes: list[JavaSdkCode] = []
         q = deque(list(ZipPath(path).iterdir()))
         while q:
@@ -140,7 +145,7 @@ class Vpk(msgspec.Struct):
             if p.is_dir():
                 q.extend(p.iterdir())
             elif (p.suffix == ".java") and ("__MACOSX" not in str(p)):
-                # Second clause ought to be unnecessary but people edit VPK's,
+                # Second clause ought to be unnecessary but people edit VPK's
                 # in MacOS, leaving unspec'd stuff behind
                 codes.append(JavaSdkCode.load(p))
 
