@@ -6,9 +6,7 @@ from typing import TypeAlias
 import xml.etree.ElementTree as ET
 from zipfile import Path as ZipPath
 
-
 import msgspec
-
 
 from meddle import Command
 
