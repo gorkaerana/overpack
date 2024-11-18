@@ -137,7 +137,7 @@ class Vpk(msgspec.Struct):
         # Sadly `zipfile.Path` does not implement `pathlib.Path.rglob`, so we
         # are forced to recurse manually
         codes: list[JavaSdkCode] = []
-        q = deque(list(ZipPath(path).iterdir()))
+        q = deque(ZipPath(path).iterdir())
         while q:
             p = q.popleft()
             if p.is_dir():
