@@ -84,8 +84,9 @@ class Md5(msgspec.Struct):
 
 class ConfigurationComponent(Component):
     md5: Md5
-    mdl: Command = None
-    workflow: dict = None
+    mdl: Command | None = None
+    workflow: dict | None = None
+    dep: list[Record] | None = None
 
     @classmethod
     def load(cls, path: ZipPath) -> ConfigurationComponent:
@@ -100,11 +101,13 @@ class ConfigurationComponent(Component):
             raise ValueError(
                 f"Expected either a .mdl or .json file in configuration component {str(path)}."
             )
+        dep_path = first_child_with_suffix(path, ".dep")
         return cls(
             number=path.stem,
             md5=Md5.load(md5_path),
             mdl=None if mdl_path is None else Command.loads(mdl_path.read_text()),
             workflow=None if json_path is None else json.loads(json_path.read_text()),
+            dep=None if dep_path is None else list(csv.DictReader(dep_path.open())),
         )
 
 
@@ -137,11 +140,11 @@ class Vpk(msgspec.Struct):
         q = deque(ZipPath(path).iterdir())
         while q:
             p = q.popleft()
-            if p.is_dir():
-                q.extend(p.iterdir())
-            elif (p.suffix == ".java") and ("__MACOSX" not in str(p)):
+            if p.is_dir() and (p.name != "__MACOSX"):
                 # Second clause ought to be unnecessary but people edit VPK's
                 # in MacOS, leaving unspec'd stuff behind
+                q.extend(p.iterdir())
+            elif p.suffix == ".java":
                 codes.append(JavaSdkCode.load(p))
 
         return cls(
