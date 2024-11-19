@@ -10,10 +10,10 @@ from typing import TypeAlias
 import xml.etree.ElementTree as ET
 from zipfile import Path as ZipPath
 
-import dict2xml
+import dict2xml  # type: ignore
 import msgspec
 
-from meddle import Command
+from meddle import Command  # type: ignore
 
 
 Record: TypeAlias = dict[str, str]  # TODO: maybe support more data types?
@@ -27,16 +27,18 @@ def first_child_with_suffix(path: ZipPath, suffix: str) -> ZipPath | None:
     return next((p for p in path.iterdir() if p.suffix.lower() == suffix), None)
 
 
+def has_child_with_suffix(path: ZipPath, suffix: str) -> bool:
+    return first_child_with_suffix(path, suffix) is not None
+
+
 def is_data_component(path: ZipPath) -> bool:
-    return first_child_with_suffix(path, ".csv") and first_child_with_suffix(
-        path, ".xml"
-    )
+    return has_child_with_suffix(path, ".csv") and has_child_with_suffix(path, ".xml")
 
 
 def is_configuration_component(path: ZipPath) -> bool:
     return (
-        first_child_with_suffix(path, ".mdl") or first_child_with_suffix(path, ".json")
-    ) and first_child_with_suffix(path, ".md5")
+        has_child_with_suffix(path, ".mdl") or has_child_with_suffix(path, ".json")
+    ) and has_child_with_suffix(path, ".md5")
 
 
 class JavaSdkCode(msgspec.Struct):
@@ -45,7 +47,10 @@ class JavaSdkCode(msgspec.Struct):
 
     @classmethod
     def load(cls, path: ZipPath):
-        return cls(path=path._base(), content=path.read_text())
+        return cls(
+            path=next(p for p in Path(str(path)).parents if p.suffix == ".vpk"),
+            content=path.read_text(),
+        )
 
     def __repr__(self):
         return f"{self.__class__.__name__}(path={str(self.path)})"
@@ -84,7 +89,7 @@ class Manifest(msgspec.Struct, frozen=True):
 
     @property
     @lru_cache
-    def parsed(self) -> list[Record]:
+    def parsed(self) -> ET.Element:
         return ET.Element(self.raw)
 
     def dumps(self) -> str:
@@ -189,7 +194,7 @@ class ConfigurationComponent(Component):
                     ]
                 ),
             )
-        if self.workflow is not None:
+        elif self.workflow is not None:
             return Md5(
                 hash=self.workflow["checksum"],
                 component_info=".".join(
@@ -199,6 +204,7 @@ class ConfigurationComponent(Component):
                     ]
                 ),
             )
+        raise Exception("Unreachable")
 
     @classmethod
     def load(cls, path: ZipPath) -> ConfigurationComponent:
@@ -224,7 +230,7 @@ class ConfigurationComponent(Component):
 
 
 class Vpk(msgspec.Struct):
-    manifest: ET.Element
+    manifest: Manifest
     components: list[Component]
     codes: list[JavaSdkCode]
 
@@ -232,6 +238,7 @@ class Vpk(msgspec.Struct):
     def load(cls, path: Path) -> Vpk:
         components: list[Component] = []
         for component_dir in ZipPath(path, "components/").iterdir():
+            component: Component
             if not component_dir.is_dir():
                 # This should be unnecessary as per the specs, but people
                 # edit VPK files in MacOS, which leaves behind stuff like

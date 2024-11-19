@@ -24,6 +24,8 @@ build-backend = "hatchling.build"
 dev = [
     "httpx>=0.27.2",
     "ipython>=8.29.0",
+    "mypy>=1.13.0",
+    "pyright>=1.1.389",
     "ruff>=0.7.4",
 ]
 
