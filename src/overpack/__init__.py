@@ -1,11 +1,13 @@
 from __future__ import annotations
 import csv
 import json
+import shutil
 from collections import deque
 from functools import cached_property
 from hashlib import md5
 from io import StringIO
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TypeAlias
 import xml.etree.ElementTree as ET
 from zipfile import Path as ZipPath
@@ -13,7 +15,7 @@ from zipfile import Path as ZipPath
 import dict2xml  # type: ignore
 import msgspec
 
-from meddle import Command  # type: ignore
+from meddle import Command
 
 
 Record: TypeAlias = dict[str, str]  # TODO: maybe support more data types?
@@ -47,13 +49,19 @@ class JavaSdkCode(msgspec.Struct):
 
     @classmethod
     def load(cls, path: ZipPath):
-        return cls(
-            path=next(p for p in Path(str(path)).parents if p.suffix == ".vpk"),
-            content=path.read_text(),
-        )
+        # This is just a very verbose way of stripping the VPK's root. E.g.
+        # /path/to/package.vpk/java/so/many/folders/file.java -> java/so/many/folders/file.java
+        p = Path(str(path))
+        stripped = p.relative_to(next(_ for _ in p.parents if _.suffix == ".vpk"))
+        return cls(path=stripped, content=path.read_text())
 
     def __repr__(self):
         return f"{self.__class__.__name__}(path={str(self.path)})"
+
+    def dump(self, path: Path):
+        target_path = path / self.path
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        target_path.write_text(self.content)
 
 
 class Component(msgspec.Struct):
@@ -61,6 +69,9 @@ class Component(msgspec.Struct):
 
     @classmethod
     def load(cls, path) -> Component:
+        raise NotImplementedError
+
+    def dump(self, path):
         raise NotImplementedError
 
     def __repr__(self):
@@ -94,12 +105,12 @@ class Manifest(msgspec.Struct, dict=True):
 
 
 class DataComponent(Component):
+    label: str
     data: Data
     manifest: Manifest | None = None
 
     def generate_manifest(
         self,
-        label: str,
         object_name: str,
         data_type: str,
         action: str,
@@ -108,7 +119,7 @@ class DataComponent(Component):
     ) -> Manifest:
         d = {
             "stepheader": {
-                "label": label,
+                "label": self.label,
                 "steprequired": step_required,
                 "checksum": self.data.checksum,
                 "datastepheader": {
@@ -132,11 +143,31 @@ class DataComponent(Component):
         xml_path = first_child_with_suffix(path, ".xml")
         if xml_path is None:
             raise ValueError(f"Expected a .xml file in data component {str(path)}.")
+        if csv_path.stem != xml_path.stem:
+            raise ValueError(
+                f".csv and .xml file names ought to match. Got {csv_path.stem} and {xml_path.stem}, respectively."
+            )
         return cls(
             number=path.stem,
+            label=csv_path.stem,
             data=Data(csv_path.read_text()),
             manifest=Manifest(xml_path.read_text()),
         )
+
+    def dump(self, path: Path) -> tuple[Path, Path]:
+        if self.manifest is None:
+            # With a better understanding of the contents and structure of a data
+            # components manifest file, perhaps this could be generated generally
+            raise ValueError(
+                "Cannot serialize a data component without a manifest. Generate one first, e.g., via 'DataComponent.generate_manifest'."
+            )
+        subdir = path / self.number
+        subdir.mkdir(parents=True, exist_ok=True)
+        csv_path = subdir / f"{self.label}.csv"
+        xml_path = subdir / f"{self.label}.xml"
+        csv_path.write_text(self.data.dumps())
+        xml_path.write_text(self.manifest.dumps())
+        return csv_path, xml_path
 
 
 class Md5(msgspec.Struct):
@@ -163,10 +194,12 @@ class Mdl(msgspec.Struct, dict=True):
 
 
 class ConfigurationComponent(Component):
+    component_type_name: str
+    component_name: str
     md5: Md5 | None = None
     mdl: Mdl | None = None
     workflow: dict | None = None
-    dep: list[Record] | None = None
+    dep: Data | None = None
 
     def __post_init__(self):
         if (self.workflow is not None) and (self.mdl is not None):
@@ -179,27 +212,31 @@ class ConfigurationComponent(Component):
                 f"A configuration component ought to have either a MDL or a workflow description. Got none in {repr(self.number)}."
             )
 
-    def generate_md5(self) -> Md5:
-        if self.mdl is not None:
-            return Md5(
-                hash=md5_hash(self.mdl.raw),
-                component_info=".".join(
-                    [
-                        self.mdl.command.component_type_name,
-                        self.mdl.command.component_name,
-                    ]
-                ),
-            )
-        elif self.workflow is not None:
-            return Md5(
-                hash=self.workflow["checksum"],
-                component_info=".".join(
+        if (self.mdl is not None) and (
+            (self.mdl.command.component_type_name != self.component_type_name)
+            or (self.mdl.command.component_name != self.component_name)
+        ):
+            raise ValueError(self.number)
+        if (self.workflow is not None) and (
+            (self.component_type_name != "Workflow")
+            or (
+                self.component_name
+                != ".".join(
                     [
                         self.workflow["procDef"]["lifecyclePublicKey"],
                         self.workflow["procDef"]["publicKey"],
                     ]
-                ),
+                )
             )
+        ):
+            raise ValueError(self.number)
+
+    def generate_md5(self) -> Md5:
+        component_info = ".".join([self.component_type_name, self.component_name])
+        if self.mdl is not None:
+            return Md5(hash=md5_hash(self.mdl.raw), component_info=component_info)
+        elif self.workflow is not None:
+            return Md5(hash=self.workflow["checksum"], component_info=component_info)
         raise Exception("Unreachable")
 
     @classmethod
@@ -216,13 +253,42 @@ class ConfigurationComponent(Component):
                 f"Expected either a .mdl or .json file in configuration component {str(path)}."
             )
         dep_path = first_child_with_suffix(path, ".dep")
+        if mdl_path is None and json_path is not None:
+            component_type_name, component_name = json_path.stem.split(".", maxsplit=1)
+        elif json_path is None and mdl_path is not None:
+            component_type_name, component_name = mdl_path.stem.split(".", maxsplit=1)
+        else:
+            raise Exception("Unreachable")
         return cls(
+            component_type_name=component_type_name,
+            component_name=component_name,
             number=path.stem,
             md5=Md5.load(md5_path),
             mdl=None if mdl_path is None else Mdl(mdl_path.read_text()),
             workflow=None if json_path is None else json.loads(json_path.read_text()),
-            dep=None if dep_path is None else list(csv.DictReader(dep_path.open())),
+            dep=None if dep_path is None else Data(dep_path.read_text()),
         )
+
+    def dump(self, path: Path) -> tuple[Path, Path | None, Path | None, Path | None]:
+        stem = f"{self.component_type_name}.{self.component_name}"
+        subdir = path / self.number
+        subdir.mkdir(parents=True, exist_ok=True)
+        md5_path = subdir / f"{stem}.md5"
+        md5_path.write_text(
+            self.generate_md5().dumps() if self.md5 is None else self.md5.dumps()
+        )
+        mdl_path, workflow_path, dep_path = None, None, None
+        if self.mdl is not None:
+            mdl_path = subdir / f"{stem}.mdl"
+            mdl_path.write_text(self.mdl.dumps())
+        if self.workflow is not None:
+            workflow_path = subdir / f"{stem}.json"
+            workflow_path.write_text(json.dumps(self.workflow))
+        if self.dep is not None:
+            dep_path = subdir / f"{stem}.dep"
+            dep_path.write_text(self.dep.dumps())
+
+        return md5_path, mdl_path, workflow_path, dep_path
 
 
 class Vpk(msgspec.Struct):
@@ -267,3 +333,17 @@ class Vpk(msgspec.Struct):
             components=components,
             codes=codes,
         )
+
+    def dump(self, path: Path):
+        with TemporaryDirectory() as tmp_dir:
+            tmp_dir_path = Path(tmp_dir)
+            tmp_vpk = tmp_dir_path / path.stem
+            tmp_vpk.mkdir()
+            (tmp_vpk / "vaultpackage.xml").write_text(self.manifest.dumps())
+            for component in self.components:
+                # TODO: do we want to rename the folders if they have been modified?
+                component.dump(tmp_vpk / "components")
+            for code in self.codes:
+                code.dump(tmp_vpk)
+            shutil.make_archive(str(tmp_vpk), "zip")
+            shutil.move(str(tmp_vpk.with_suffix(".zip")), path)
