@@ -2,17 +2,25 @@ from __future__ import annotations
 import csv
 import json
 from collections import deque
+from functools import lru_cache
+from hashlib import md5
+from io import StringIO
 from pathlib import Path
 from typing import TypeAlias
 import xml.etree.ElementTree as ET
 from zipfile import Path as ZipPath
 
+import dict2xml
 import msgspec
 
 from meddle import Command
 
 
 Record: TypeAlias = dict[str, str]  # TODO: maybe support more data types?
+
+
+def md5_hash(s: str | bytes) -> str:
+    return md5(s.encode() if isinstance(s, str) else s).hexdigest()
 
 
 def first_child_with_suffix(path: ZipPath, suffix: str) -> ZipPath | None:
@@ -54,9 +62,65 @@ class Component(msgspec.Struct):
         return f"{self.__class__.__name__}(number={repr(self.number)})"
 
 
+class Data(msgspec.Struct, frozen=True):
+    raw: str
+
+    @property
+    @lru_cache
+    def records(self) -> list[Record]:
+        return list(csv.DictReader(StringIO(self.raw)))
+
+    @property
+    @lru_cache
+    def checksum(self) -> str:
+        return md5_hash(self.raw)
+
+    def dumps(self) -> str:
+        return self.raw
+
+
+class Manifest(msgspec.Struct, frozen=True):
+    raw: str
+
+    @property
+    @lru_cache
+    def parsed(self) -> list[Record]:
+        return ET.Element(self.raw)
+
+    def dumps(self) -> str:
+        return self.raw
+
+
 class DataComponent(Component):
-    data: list[Record]
-    metadata: ET.Element
+    data: Data
+    manifest: Manifest | None = None
+
+    def generate_manifest(
+        self,
+        label: str,
+        object_name: str,
+        data_type: str,
+        action: str,
+        step_required: bool = False,
+        record_migration_mode: bool = False,
+    ) -> Manifest:
+        d = {
+            "stepheader": {
+                "label": label,
+                "steprequired": step_required,
+                "checksum": self.data.checksum,
+                "datastepheader": {
+                    "object": object_name,
+                    "idparam": None,
+                    "datatype": data_type,
+                    "action": action,
+                    "recordmigrationmode": record_migration_mode,
+                    "recordcount": len(self.data.records),
+                },
+            }
+        }
+        s = dict2xml.Converter("").build(d, closed_tags_for=[None])
+        return Manifest(s)
 
     @classmethod
     def load(cls, path: ZipPath) -> DataComponent:
@@ -68,8 +132,8 @@ class DataComponent(Component):
             raise ValueError(f"Expected a .xml file in data component {str(path)}.")
         return cls(
             number=path.stem,
-            data=list(csv.DictReader(csv_path.open())),
-            metadata=ET.fromstring(xml_path.read_text()),
+            data=Data(csv_path.read_text()),
+            manifest=Manifest(xml_path.read_text()),
         )
 
 
@@ -81,12 +145,60 @@ class Md5(msgspec.Struct):
     def load(cls, path: ZipPath) -> Md5:
         return cls(*path.read_text().split())
 
+    def dumps(self) -> str:
+        return f"{self.hash} {self.component_info}"
+
+
+class Mdl(msgspec.Struct, frozen=True):
+    raw: str
+
+    @property
+    @lru_cache
+    def command(self) -> Command:
+        return Command.loads(self.raw)
+
+    def dumps(self) -> str:
+        return self.raw
+
 
 class ConfigurationComponent(Component):
-    md5: Md5
-    mdl: Command | None = None
+    md5: Md5 | None = None
+    mdl: Mdl | None = None
     workflow: dict | None = None
     dep: list[Record] | None = None
+
+    def __post_init__(self):
+        if (self.workflow is not None) and (self.mdl is not None):
+            raise ValueError(
+                f"A configuration component ought to have either a MDL or a workflow description. Got both in {repr(self.number)}."
+            )
+
+        if (self.workflow is None) and (self.mdl is None):
+            raise ValueError(
+                f"A configuration component ought to have either a MDL or a workflow description. Got none in {repr(self.number)}."
+            )
+
+    def generate_md5(self) -> Md5:
+        if self.mdl is not None:
+            return Md5(
+                hash=md5_hash(self.mdl.raw),
+                component_info=".".join(
+                    [
+                        self.mdl.command.component_type_name,
+                        self.mdl.command.component_name,
+                    ]
+                ),
+            )
+        if self.workflow is not None:
+            return Md5(
+                hash=self.workflow["checksum"],
+                component_info=".".join(
+                    [
+                        self.workflow["procDef"]["lifecyclePublicKey"],
+                        self.workflow["procDef"]["publicKey"],
+                    ]
+                ),
+            )
 
     @classmethod
     def load(cls, path: ZipPath) -> ConfigurationComponent:
@@ -105,7 +217,7 @@ class ConfigurationComponent(Component):
         return cls(
             number=path.stem,
             md5=Md5.load(md5_path),
-            mdl=None if mdl_path is None else Command.loads(mdl_path.read_text()),
+            mdl=None if mdl_path is None else Mdl(mdl_path.read_text()),
             workflow=None if json_path is None else json.loads(json_path.read_text()),
             dep=None if dep_path is None else list(csv.DictReader(dep_path.open())),
         )
@@ -148,7 +260,7 @@ class Vpk(msgspec.Struct):
                 codes.append(JavaSdkCode.load(p))
 
         return cls(
-            manifest=ET.fromstring(ZipPath(path, "vaultpackage.xml").read_text()),
+            manifest=Manifest(ZipPath(path, "vaultpackage.xml").read_text()),
             components=components,
             codes=codes,
         )

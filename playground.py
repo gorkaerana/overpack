@@ -1,17 +1,21 @@
 from pathlib import Path
 
-from overpack import Vpk
+from overpack import Vpk, DataComponent, ConfigurationComponent
 
 for p in Path("./tests/vpk_examples/").glob("*.vpk"):
-    if p.name in {
-        "Multichannel_vsdk-http-sample-components.vpk",
-        "Clinical_vsdk-http-sample-components.vpk",
-        "RIM_vsdk-http-sample-components.vpk",
-        "Base_vsdk-http-sample-components.vpk",
-        "Quaility_vsdk-http-sample-components.vpk",
-    }:
-        continue
     vpk = Vpk.load(p)
     print(p)
     print(vpk)
+    for c in vpk.components:
+        if isinstance(c, ConfigurationComponent):
+            print(c.generate_md5())
+        elif isinstance(c, DataComponent):
+            print(
+                c.generate_manifest(
+                    label="label",
+                    object_name="object_name",
+                    data_type="data_type",
+                    action="action",
+                ).parsed
+            )
     print()

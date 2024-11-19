@@ -54,6 +54,15 @@ wheels = [
 ]
 
 [[package]]
+name = "dict2xml"
+version = "1.7.6"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/07/b3/2db1b077f9a80d30d1729a0af69b7cef8ce5b45c77a1f0f9ebb01b9edce1/dict2xml-1.7.6.tar.gz", hash = "sha256:3e4811f4ef7fca86dede6acf382268ff9bc5735a4aa0e21b465f6eb0c4e81732", size = 15210 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/32/ad/5a193b6461c713058e3c5b6dbec7a9f92230a968650129cc46f32d3c9de2/dict2xml-1.7.6-py3-none-any.whl", hash = "sha256:841a0c1720e4bfa121e958b805f1062fccf5af2970e7a1f81d7fa056f49e5065", size = 8038 },
+]
+
+[[package]]
 name = "executing"
 version = "2.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -177,7 +186,7 @@ requires-dist = [
     { name = "msgspec", specifier = ">=0.18.6" },
 ]
 
-[package.metadata.requires-dev]
+[package.metadata.dependency-groups]
 dev = [
     { name = "beautifulsoup4", specifier = ">=4.12.3" },
     { name = "httpx", specifier = ">=0.27.2" },
@@ -214,11 +223,12 @@ name = "overpack"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "dict2xml" },
     { name = "meddle" },
     { name = "msgspec" },
 ]
 
-[package.dev-dependencies]
+[package.dependency-groups]
 dev = [
     { name = "httpx" },
     { name = "ipython" },
@@ -227,11 +237,12 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "dict2xml", specifier = ">=1.7.6" },
     { name = "meddle", directory = "../mdl" },
     { name = "msgspec", specifier = ">=0.18.6" },
 ]
 
-[package.metadata.requires-dev]
+[package.metadata.dependency-groups]
 dev = [
     { name = "httpx", specifier = ">=0.27.2" },
     { name = "ipython", specifier = ">=8.29.0" },
