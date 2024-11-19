@@ -2,7 +2,7 @@ from __future__ import annotations
 import csv
 import json
 from collections import deque
-from functools import lru_cache
+from functools import cached_property
 from hashlib import md5
 from io import StringIO
 from pathlib import Path
@@ -67,16 +67,14 @@ class Component(msgspec.Struct):
         return f"{self.__class__.__name__}(number={repr(self.number)})"
 
 
-class Data(msgspec.Struct, frozen=True):
+class Data(msgspec.Struct, dict=True):
     raw: str
 
-    @property
-    @lru_cache
+    @cached_property
     def records(self) -> list[Record]:
         return list(csv.DictReader(StringIO(self.raw)))
 
-    @property
-    @lru_cache
+    @cached_property
     def checksum(self) -> str:
         return md5_hash(self.raw)
 
@@ -84,11 +82,10 @@ class Data(msgspec.Struct, frozen=True):
         return self.raw
 
 
-class Manifest(msgspec.Struct, frozen=True):
+class Manifest(msgspec.Struct, dict=True):
     raw: str
 
-    @property
-    @lru_cache
+    @cached_property
     def parsed(self) -> ET.Element:
         return ET.Element(self.raw)
 
@@ -154,11 +151,10 @@ class Md5(msgspec.Struct):
         return f"{self.hash} {self.component_info}"
 
 
-class Mdl(msgspec.Struct, frozen=True):
+class Mdl(msgspec.Struct, dict=True):
     raw: str
 
-    @property
-    @lru_cache
+    @cached_property
     def command(self) -> Command:
         return Command.loads(self.raw)
 
