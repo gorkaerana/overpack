@@ -1,8 +1,10 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 from overpack import Vpk, DataComponent, ConfigurationComponent
 
-for p in Path("./tests/vpk_examples/").glob("*.vpk"):
+
+def f(p: Path) -> Path:
     vpk = Vpk.load(p)
     for c in vpk.components:
         if isinstance(c, ConfigurationComponent):
@@ -13,4 +15,14 @@ for p in Path("./tests/vpk_examples/").glob("*.vpk"):
                 data_type="data_type_placeholder",
                 action="action_placeholder",
             )
-    vpk.dump(Path("/mnt/c/Users/GorkaEraña/Downloads/kaka") / f"{p.name}")
+    rp = Path("/mnt/c/Users/GorkaEraña/Downloads/kaka") / f"{p.name}"
+    vpk.dump(rp)
+    return rp
+
+
+vpk_files = list(Path("./tests/vpk_examples/").glob("*.vpk"))
+max_workers = len(vpk_files)
+with ThreadPoolExecutor(max_workers=max_workers) as executor:
+    futures = [executor.submit(f, p) for p in vpk_files]
+    for future in as_completed(futures):
+        future.result()
