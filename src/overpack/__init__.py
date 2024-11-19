@@ -1,5 +1,6 @@
 from __future__ import annotations
 import csv
+import json
 from collections import deque
 from pathlib import Path
 from typing import TypeAlias
@@ -25,9 +26,9 @@ def is_data_component(path: ZipPath) -> bool:
 
 
 def is_configuration_component(path: ZipPath) -> bool:
-    return first_child_with_suffix(path, ".mdl") and first_child_with_suffix(
-        path, ".md5"
-    )
+    return (
+        first_child_with_suffix(path, ".mdl") or first_child_with_suffix(path, ".json")
+    ) and first_child_with_suffix(path, ".md5")
 
 
 class JavaSdkCode(msgspec.Struct):
@@ -82,25 +83,28 @@ class Md5(msgspec.Struct):
 
 
 class ConfigurationComponent(Component):
-    mdl: Command
     md5: Md5
+    mdl: Command = None
+    workflow: dict = None
 
     @classmethod
     def load(cls, path: ZipPath) -> ConfigurationComponent:
-        mdl_path = first_child_with_suffix(path, ".mdl")
-        if mdl_path is None:
-            raise ValueError(
-                f"Expected a .mdl file in configuration component {str(path)}."
-            )
         md5_path = first_child_with_suffix(path, ".md5")
         if md5_path is None:
             raise ValueError(
                 f"Expected a .md5 file in configuration component {str(path)}."
             )
+        mdl_path = first_child_with_suffix(path, ".mdl")
+        json_path = first_child_with_suffix(path, ".json")
+        if (mdl_path is None) and (json_path is None):
+            raise ValueError(
+                f"Expected either a .mdl or .json file in configuration component {str(path)}."
+            )
         return cls(
             number=path.stem,
-            mdl=Command.loads(mdl_path.read_text()),
             md5=Md5.load(md5_path),
+            mdl=None if mdl_path is None else Command.loads(mdl_path.read_text()),
+            workflow=None if json_path is None else json.loads(json_path.read_text()),
         )
 
 
@@ -123,13 +127,6 @@ class Vpk(msgspec.Struct):
             elif is_configuration_component(component_dir):
                 component = ConfigurationComponent.load(component_dir)
             else:
-                # TODO: what the heck is up with the configuration component
-                # containing a .json file?
-                # Multichannel_vsdk-http-sample-components.vpk/components/00070/
-                # Clinical_vsdk-http-sample-components.vpk/components/0070/
-                # RIM_vsdk-http-sample-components.vpk/components/00070/
-                # Base_vsdk-http-sample-components.vpk/components/00070/
-                # Quaility_vsdk-http-sample-components.vpk/components/00070/
                 raise ValueError(
                     f"{str(component_dir)} is neither a data nor a configuration component."
                 )
