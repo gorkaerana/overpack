@@ -3,7 +3,6 @@ from pathlib import Path
 from overpack import Vpk, DataComponent, ConfigurationComponent
 
 for p in Path("./tests/vpk_examples/").glob("*.vpk"):
-    print(p)
     vpk = Vpk.load(p)
     for c in vpk.components:
         if isinstance(c, ConfigurationComponent):
@@ -15,4 +14,3 @@ for p in Path("./tests/vpk_examples/").glob("*.vpk"):
                 action="action_placeholder",
             )
     vpk.dump(Path("/mnt/c/Users/GorkaEraña/Downloads/kaka") / f"{p.name}")
-    print()
