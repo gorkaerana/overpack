@@ -58,10 +58,13 @@ class JavaSdkCode(msgspec.Struct):
     def __repr__(self):
         return f"{self.__class__.__name__}(path={str(self.path)})"
 
+    def dumps(self):
+        return self.content
+
     def dump(self, path: Path):
         target_path = path / self.path
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        target_path.write_text(self.content)
+        target_path.write_text(self.dumps())
 
 
 class Component(msgspec.Struct):
@@ -102,6 +105,9 @@ class Manifest(msgspec.Struct, dict=True):
 
     def dumps(self) -> str:
         return self.raw
+
+    def dump(self, path: Path):
+        path.write_text(self.dumps())
 
 
 class DataComponent(Component):
@@ -339,7 +345,7 @@ class Vpk(msgspec.Struct):
             tmp_dir_path = Path(tmp_dir)
             tmp_vpk = tmp_dir_path / path.stem
             tmp_vpk.mkdir()
-            (tmp_vpk / "vaultpackage.xml").write_text(self.manifest.dumps())
+            self.manifest.dump(tmp_vpk / "vaultpackage.xml")
             for component in self.components:
                 # TODO: do we want to rename the folders if they have been modified?
                 component.dump(tmp_vpk / "components")
