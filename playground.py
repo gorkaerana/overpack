@@ -15,8 +15,10 @@ def f(p: Path) -> Path:
                 data_type="data_type_placeholder",
                 action="action_placeholder",
             )
-    rp = Path("/mnt/c/Users/GorkaEraña/Downloads/kaka") / f"{p.name}"
+    rp = Path("/tmp/vpk_playground") / f"{p.name}"
+    # rp = Path("/mnt/c/Users/GorkaEraña/Downloads/kaka") / f"{p.name}"
     vpk.dump(rp)
+    print(f"Wrote {rp}")
     return rp
 
 

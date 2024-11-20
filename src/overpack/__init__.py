@@ -1,7 +1,6 @@
 from __future__ import annotations
 import csv
 import json
-import shutil
 from collections import deque
 from functools import cached_property
 from hashlib import md5
@@ -10,7 +9,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TypeAlias
 import xml.etree.ElementTree as ET
-from zipfile import Path as ZipPath
+from zipfile import Path as ZipPath, ZipFile
 
 import dict2xml  # type: ignore
 import msgspec
@@ -61,10 +60,14 @@ class JavaSdkCode(msgspec.Struct):
     def dumps(self):
         return self.content
 
-    def dump(self, path: Path):
+    def dump(self, path: Path) -> Path:
+        """`path` is the one to the VPK root, *before zipping*. E.g.
+        /path/to/package, which will eventually result in /path/to/package.vpk
+        """
         target_path = path / self.path
         target_path.parent.mkdir(parents=True, exist_ok=True)
         target_path.write_text(self.dumps())
+        return target_path
 
 
 class Component(msgspec.Struct):
@@ -106,8 +109,13 @@ class Manifest(msgspec.Struct, dict=True):
     def dumps(self) -> str:
         return self.raw
 
-    def dump(self, path: Path):
-        path.write_text(self.dumps())
+    def dump(self, path: Path) -> Path:
+        """`path` is the one to the VPK root, *before zipping*. E.g.
+        /path/to/package, which will eventually result in /path/to/package.vpk
+        """
+        target_path = path / "vaultpackage.xml"
+        target_path.write_text(self.dumps())
+        return target_path
 
 
 class DataComponent(Component):
@@ -161,13 +169,16 @@ class DataComponent(Component):
         )
 
     def dump(self, path: Path) -> tuple[Path, Path]:
+        """`path` is the one to the VPK root, *before zipping*. E.g.
+        /path/to/package, which will eventually result in /path/to/package.vpk
+        """
         if self.manifest is None:
             # With a better understanding of the contents and structure of a data
             # components manifest file, perhaps this could be generated generally
             raise ValueError(
                 "Cannot serialize a data component without a manifest. Generate one first, e.g., via 'DataComponent.generate_manifest'."
             )
-        subdir = path / self.number
+        subdir = path / "components" / self.number
         subdir.mkdir(parents=True, exist_ok=True)
         csv_path = subdir / f"{self.label}.csv"
         xml_path = subdir / f"{self.label}.xml"
@@ -276,8 +287,11 @@ class ConfigurationComponent(Component):
         )
 
     def dump(self, path: Path) -> tuple[Path, Path | None, Path | None, Path | None]:
+        """`path` is the one to the VPK root, *before zipping*. E.g.
+        /path/to/package, which will eventually result in /path/to/package.vpk
+        """
         stem = f"{self.component_type_name}.{self.component_name}"
-        subdir = path / self.number
+        subdir = path / "components" / self.number
         subdir.mkdir(parents=True, exist_ok=True)
         md5_path = subdir / f"{stem}.md5"
         md5_path.write_text(
@@ -341,15 +355,26 @@ class Vpk(msgspec.Struct):
         )
 
     def dump(self, path: Path):
-        with TemporaryDirectory() as tmp_dir:
+        """`path` is the one to the VPK package. E.g., /path/to/package.vpk"""
+        # For whichever reason, it is considerably faster (by an order of magnitude) to
+        # operate in a temporary directory and add files to the ZIP file individually
+        # with `ZipFile.write`; instead of operating in the temporary directory and
+        # and creating the ZIP file via `shutil.make_archive`.
+        with TemporaryDirectory() as tmp_dir, ZipFile(path, mode="w") as zip_file:
             tmp_dir_path = Path(tmp_dir)
             tmp_vpk = tmp_dir_path / path.stem
             tmp_vpk.mkdir()
-            self.manifest.dump(tmp_vpk / "vaultpackage.xml")
+            # Notice in what follows the "`dump` in one line, `ZipFile.write` in
+            # the following line" pattern. The order matters since the file path
+            # passed to `ZipFile.write` ought to exist
+            manifest_path = self.manifest.dump(tmp_vpk)
+            zip_file.write(manifest_path)
             for component in self.components:
                 # TODO: do we want to rename the folders if they have been modified?
-                component.dump(tmp_vpk / "components")
+                component_file_paths = component.dump(tmp_vpk)
+                p: Path
+                for p in filter(None, component_file_paths):
+                    zip_file.write(p)
             for code in self.codes:
-                code.dump(tmp_vpk)
-            shutil.make_archive(str(tmp_vpk), "zip")
-            shutil.move(str(tmp_vpk.with_suffix(".zip")), path)
+                code_file_path = code.dump(tmp_vpk)
+                zip_file.write(code_file_path)
