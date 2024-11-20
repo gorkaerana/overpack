@@ -7,15 +7,18 @@ from hashlib import md5
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TypeAlias
+from typing import TypeAlias, TypeVar
 import xml.etree.ElementTree as ET
-from zipfile import Path as ZipPath, ZipFile
+from zipfile import Path as ZipPath, ZipFile, is_zipfile
 
 import dict2xml  # type: ignore
 import msgspec
 
 from meddle import Command
 
+
+ZipPathPlus: TypeAlias = Path | ZipPath
+P = TypeVar("P", Path, ZipPath, ZipPathPlus)
 
 Record: TypeAlias = dict[str, str]  # TODO: maybe support more data types?
 
@@ -27,24 +30,24 @@ def md5_hash(s: str | bytes) -> str:
     return md5(s.encode() if isinstance(s, str) else s).hexdigest()
 
 
-def first_child_with_suffix(path: ZipPath, suffix: str) -> ZipPath | None:
+def first_child_with_suffix(path: P, suffix: str) -> P | None:
     """Return the first file path under `path` with extension `suffix`, by
     iterating with `iterdir`. Returns `None` if none could be found.
     """
     return next((p for p in path.iterdir() if p.suffix.lower() == suffix), None)
 
 
-def has_child_with_suffix(path: ZipPath, suffix: str) -> bool:
+def has_child_with_suffix(path: ZipPathPlus, suffix: str) -> bool:
     """Flags whether `path` contains a file underneath with extension `suffix`"""
     return first_child_with_suffix(path, suffix) is not None
 
 
-def is_data_component(path: ZipPath) -> bool:
+def is_data_component(path: ZipPathPlus) -> bool:
     """Checks whether `path`"""
     return has_child_with_suffix(path, ".csv") and has_child_with_suffix(path, ".xml")
 
 
-def is_configuration_component(path: ZipPath) -> bool:
+def is_configuration_component(path: ZipPathPlus) -> bool:
     return (
         has_child_with_suffix(path, ".mdl") or has_child_with_suffix(path, ".json")
     ) and has_child_with_suffix(path, ".md5")
@@ -55,12 +58,15 @@ class JavaSdkCode(msgspec.Struct):
     content: str
 
     @classmethod
-    def load(cls, path: ZipPath):
-        # This is just a very verbose way of stripping the VPK's root. E.g.
-        # /path/to/package.vpk/java/so/many/folders/file.java -> java/so/many/folders/file.java
+    def load(cls, path: ZipPathPlus, root_path: ZipPathPlus) -> JavaSdkCode:
+        """`path` to the actual '.java' file."""
+        # TODO: I don't like that we break the API convention of only providing
+        # the source path, figure out an alternative
         p = Path(str(path))
-        stripped = p.relative_to(next(_ for _ in p.parents if _.suffix == ".vpk"))
-        return cls(path=stripped, content=path.read_text())
+        # Fret not! This is just a verbose way of stripping the VPK's root. E.g.
+        # /path/to/package.vpk/java/so/many/folders/file.java -> java/so/many/folders/file.java
+        stripped = p.relative_to(str(root_path))
+        return cls(path=Path(stripped), content=path.read_text())
 
     def __repr__(self):
         return f"{self.__class__.__name__}(path={str(self.path)})"
@@ -82,10 +88,10 @@ class Component(msgspec.Struct):
     number: str
 
     @classmethod
-    def load(cls, path) -> Component:
+    def load(cls, path: ZipPathPlus) -> Component:
         raise NotImplementedError
 
-    def dump(self, path):
+    def dump(self, path: Path):
         raise NotImplementedError
 
     def __repr__(self):
@@ -158,7 +164,8 @@ class DataComponent(Component):
         return Manifest(s)
 
     @classmethod
-    def load(cls, path: ZipPath) -> DataComponent:
+    def load(cls, path: ZipPathPlus) -> DataComponent:
+        """`path` to component folder"""
         csv_path = first_child_with_suffix(path, ".csv")
         if csv_path is None:
             raise ValueError(f"Expected a .csv file in data component {str(path)}.")
@@ -204,7 +211,8 @@ class Md5(msgspec.Struct):
     component_info: str
 
     @classmethod
-    def load(cls, path: ZipPath) -> Md5:
+    def load(cls, path: ZipPathPlus) -> Md5:
+        """`path` to the actual .md5 file"""
         return cls(*path.read_text().split())
 
     def dumps(self) -> str:
@@ -278,7 +286,8 @@ class ConfigurationComponent(Component):
         )
 
     @classmethod
-    def load(cls, path: ZipPath) -> ConfigurationComponent:
+    def load(cls, path: ZipPathPlus) -> ConfigurationComponent:
+        """`path` to component folder"""
         md5_path = first_child_with_suffix(path, ".md5")
         if md5_path is None:
             raise ValueError(
@@ -341,8 +350,27 @@ class Vpk(msgspec.Struct):
 
     @classmethod
     def load(cls, path: Path) -> Vpk:
+        """`path` to VPK package."""
+        path_: ZipPathPlus
+        if is_zipfile(str(path)):  # Compressed
+            path_ = ZipPath(path)
+        elif path.is_dir():  # Uncompressed
+            path_ = Path(path)
+        else:  # Something else?
+            raise ValueError(
+                f"VPK packages can only be loaded from zipped or unzipped (a folder) sources. Instead got {repr(str(path))}"
+            )
+
+        manifest_path = path_ / "vaultpackage.xml"
+        if not manifest_path.exists():
+            raise FileNotFoundError(
+                f"Could not find manifest file in {repr(str(manifest_path))}."
+            )
+        components_dir = path_ / "components"
         components: list[Component] = []
-        for component_dir in ZipPath(path, "components/").iterdir():
+        for component_dir in (
+            [] if not components_dir.exists() else components_dir.iterdir()
+        ):
             component: Component
             if not component_dir.is_dir():
                 # This should be unnecessary as per the specs, but people
@@ -361,18 +389,18 @@ class Vpk(msgspec.Struct):
         # Sadly `zipfile.Path` does not implement `pathlib.Path.rglob`, so we
         # are forced to recurse manually
         codes: list[JavaSdkCode] = []
-        q = deque(ZipPath(path).iterdir())
+        q: deque[ZipPathPlus] = deque(path_.iterdir())
         while q:
-            p = q.popleft()
+            p: ZipPathPlus = q.popleft()
             if p.is_dir() and (p.name != "__MACOSX"):
                 # Second clause ought to be unnecessary but people edit VPK's
                 # in MacOS, leaving unspec'd stuff behind
                 q.extend(p.iterdir())
             elif p.suffix == ".java":
-                codes.append(JavaSdkCode.load(p))
+                codes.append(JavaSdkCode.load(p, path_))
 
         return cls(
-            manifest=Manifest(ZipPath(path, "vaultpackage.xml").read_text()),
+            manifest=Manifest(manifest_path.read_text()),
             components=components,
             codes=codes,
         )
@@ -391,13 +419,13 @@ class Vpk(msgspec.Struct):
             # the following line" pattern. The order matters since the file path
             # passed to `ZipFile.write` ought to exist
             manifest_path = self.manifest.dump(tmp_vpk)
-            zip_file.write(manifest_path)
+            zip_file.write(str(manifest_path))
             for component in self.components:
                 # TODO: do we want to rename the folders if they have been modified?
                 component_file_paths = component.dump(tmp_vpk)
-                p: Path
+                p: ZipPathPlus
                 for p in filter(None, component_file_paths):
-                    zip_file.write(p)
+                    zip_file.write(str(p))
             for code in self.codes:
                 code_file_path = code.dump(tmp_vpk)
-                zip_file.write(code_file_path)
+                zip_file.write(str(code_file_path))
