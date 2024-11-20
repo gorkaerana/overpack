@@ -25,7 +25,7 @@ def f(p: Path) -> Path:
 vpk_files = [
     p
     for p in Path("./tests/vpk_examples/").iterdir()
-    if p.is_dir() or (p.suffix == ".vpk")
+    if (p.suffix == ".vpk") or p.is_dir()
 ]
 max_workers = len(vpk_files)
 with ThreadPoolExecutor(max_workers=max_workers) as executor:

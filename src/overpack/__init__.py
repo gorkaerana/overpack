@@ -58,15 +58,31 @@ class JavaSdkCode(msgspec.Struct):
     content: str
 
     @classmethod
-    def load(cls, path: ZipPathPlus, root_path: ZipPathPlus) -> JavaSdkCode:
+    def load(cls, path: ZipPathPlus) -> JavaSdkCode:
         """`path` to the actual '.java' file."""
-        # TODO: I don't like that we break the API convention of only providing
-        # the source path, figure out an alternative
-        p = Path(str(path))
-        # Fret not! This is just a verbose way of stripping the VPK's root. E.g.
-        # /path/to/package.vpk/java/so/many/folders/file.java -> java/so/many/folders/file.java
-        stripped = p.relative_to(str(root_path))
-        return cls(path=Path(stripped), content=path.read_text())
+        # `pathlib.Path.parents` and `pathlib.Path.relative_to` are not implemented
+        # for `zipfile.Path`, which is why we need this wrap
+        wrapped_path = Path(str(path))
+        javasdk_dir = next(
+            (p for p in wrapped_path.parents if p.name == "javasdk"), None
+        )
+        if javasdk_dir is None:
+            raise ValueError(
+                f"By convention, Java SDK code files ought to go under a 'javasdk' folder. Instead got {repr(str(path))}"
+            )
+        # Very importantly, notice below is `path.read_text()` and not
+        # `wrapped_path.read_text()`. That's because `path` needs to be `zipfile.Path`
+        # when reading from a zipped VPK and `pathlib.Path` when reading for a folder,
+        # which upstream (i.e., `VPK.load`) handles correctly. Otherwise, the user
+        # will have to. We could be extra cautious and do some validation in here,
+        # e.g., `is_zipfile(javasdk_dir.parent)` or `javasdk_dir.parent.is_dir()`
+        try:
+            content = path.read_text()
+        except NotADirectoryError as e:
+            raise TypeError(
+                "It seems as though you are trying to read a Java file from inside a .zip file using, `pathlib.Path.read_text` instead of `zipfile.Path.read_text`"
+            ) from e
+        return cls(path=wrapped_path.relative_to(javasdk_dir.parent), content=content)
 
     def __repr__(self):
         return f"{self.__class__.__name__}(path={str(self.path)})"
@@ -351,6 +367,7 @@ class Vpk(msgspec.Struct):
     @classmethod
     def load(cls, path: Path) -> Vpk:
         """`path` to VPK package."""
+        path = Path(path).resolve()
         path_: ZipPathPlus
         if is_zipfile(str(path)):  # Compressed
             path_ = ZipPath(path)
@@ -397,7 +414,7 @@ class Vpk(msgspec.Struct):
                 # in MacOS, leaving unspec'd stuff behind
                 q.extend(p.iterdir())
             elif p.suffix == ".java":
-                codes.append(JavaSdkCode.load(p, path_))
+                codes.append(JavaSdkCode.load(p))
 
         return cls(
             manifest=Manifest(manifest_path.read_text()),
@@ -407,25 +424,37 @@ class Vpk(msgspec.Struct):
 
     def dump(self, path: Path):
         """`path` is the one to the VPK package. E.g., /path/to/package.vpk"""
+        path = Path(path).resolve()
         # For whichever reason, it is considerably faster (by an order of magnitude) to
         # operate in a temporary directory and add files to the ZIP file individually
         # with `ZipFile.write`; instead of operating in the temporary directory and
         # and creating the ZIP file via `shutil.make_archive`.
         with TemporaryDirectory() as tmp_dir, ZipFile(path, mode="w") as zip_file:
-            tmp_dir_path = Path(tmp_dir)
+            tmp_dir_path = Path(tmp_dir).resolve()
             tmp_vpk = tmp_dir_path / path.stem
             tmp_vpk.mkdir()
             # Notice in what follows the "`dump` in one line, `ZipFile.write` in
             # the following line" pattern. The order matters since the file path
             # passed to `ZipFile.write` ought to exist
             manifest_path = self.manifest.dump(tmp_vpk)
-            zip_file.write(str(manifest_path))
+            zip_file.write(
+                str(manifest_path), arcname=str(manifest_path.relative_to(tmp_vpk))
+            )
             for component in self.components:
                 # TODO: do we want to rename the folders if they have been modified?
-                component_file_paths = component.dump(tmp_vpk)
                 p: ZipPathPlus
-                for p in filter(None, component_file_paths):
-                    zip_file.write(str(p))
+                for p in component.dump(tmp_vpk):
+                    if p is None:
+                        continue
+                    zip_file.write(str(p), arcname=str(p.relative_to(str(tmp_vpk))))
+            # TODO: I'm not sure whether it might be relevant, but it seems as
+            # though in most (if not all) scrapped VPK packages the Java SDK
+            # files were added first to the zip archive
+            # TODO: scrapped VPK packages have added the empty folders to the ZIP
+            # archive not only the Java files
             for code in self.codes:
                 code_file_path = code.dump(tmp_vpk)
-                zip_file.write(str(code_file_path))
+                zip_file.write(
+                    str(code_file_path),
+                    arcname=str(code_file_path.relative_to(tmp_vpk)),
+                )
