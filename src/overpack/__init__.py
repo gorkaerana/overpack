@@ -14,7 +14,7 @@ from zipfile import Path as ZipPath, ZipFile, is_zipfile
 import dict2xml  # type: ignore
 import msgspec
 
-from meddle import Command
+from meddle import Command  # type: ignore  # TODO: solve this
 
 
 ZipPathPlus: TypeAlias = Path | ZipPath
@@ -107,7 +107,7 @@ class Component(msgspec.Struct):
     def load(cls, path: ZipPathPlus) -> Component:
         raise NotImplementedError
 
-    def dump(self, path: Path):
+    def dump(self, path: Path) -> tuple[Path | None, ...]:
         raise NotImplementedError
 
     def __repr__(self):
@@ -388,7 +388,7 @@ class Vpk(msgspec.Struct):
         for component_dir in (
             [] if not components_dir.exists() else components_dir.iterdir()
         ):
-            component: Component
+            component: DataComponent | ConfigurationComponent
             if not component_dir.is_dir():
                 # This should be unnecessary as per the specs, but people
                 # edit VPK files in MacOS, which leaves behind stuff like
@@ -442,11 +442,8 @@ class Vpk(msgspec.Struct):
             )
             for component in self.components:
                 # TODO: do we want to rename the folders if they have been modified?
-                p: ZipPathPlus
-                for p in component.dump(tmp_vpk):
-                    if p is None:
-                        continue
-                    zip_file.write(str(p), arcname=str(p.relative_to(str(tmp_vpk))))
+                for p in filter(None, component.dump(tmp_vpk)):
+                    zip_file.write(str(p), arcname=str(p.relative_to(tmp_vpk)))
             # TODO: I'm not sure whether it might be relevant, but it seems as
             # though in most (if not all) scrapped VPK packages the Java SDK
             # files were added first to the zip archive
