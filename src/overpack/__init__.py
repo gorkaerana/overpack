@@ -21,18 +21,26 @@ Record: TypeAlias = dict[str, str]  # TODO: maybe support more data types?
 
 
 def md5_hash(s: str | bytes) -> str:
+    """A small utility function to compute the MD5 checksum of a given string
+    or bytes `s`
+    """
     return md5(s.encode() if isinstance(s, str) else s).hexdigest()
 
 
 def first_child_with_suffix(path: ZipPath, suffix: str) -> ZipPath | None:
+    """Return the first file path under `path` with extension `suffix`, by
+    iterating with `iterdir`. Returns `None` if none could be found.
+    """
     return next((p for p in path.iterdir() if p.suffix.lower() == suffix), None)
 
 
 def has_child_with_suffix(path: ZipPath, suffix: str) -> bool:
+    """Flags whether `path` contains a file underneath with extension `suffix`"""
     return first_child_with_suffix(path, suffix) is not None
 
 
 def is_data_component(path: ZipPath) -> bool:
+    """Checks whether `path`"""
     return has_child_with_suffix(path, ".csv") and has_child_with_suffix(path, ".xml")
 
 
@@ -161,6 +169,10 @@ class DataComponent(Component):
             raise ValueError(
                 f".csv and .xml file names ought to match. Got {csv_path.stem} and {xml_path.stem}, respectively."
             )
+        if csv_path.stem != xml_path.stem:
+            raise ValueError(
+                f".csv ({repr(csv_path)}) and .xml ({repr(xml_path)}) files names differ in {str(path)}."
+            )
         return cls(
             number=path.stem,
             label=csv_path.stem,
@@ -219,6 +231,7 @@ class ConfigurationComponent(Component):
     dep: Data | None = None
 
     def __post_init__(self):
+        ctn, cn = self.component_type_name, self.component_name
         if (self.workflow is not None) and (self.mdl is not None):
             raise ValueError(
                 f"A configuration component ought to have either a MDL or a workflow description. Got both in {repr(self.number)}."
@@ -229,24 +242,30 @@ class ConfigurationComponent(Component):
                 f"A configuration component ought to have either a MDL or a workflow description. Got none in {repr(self.number)}."
             )
 
-        if (self.mdl is not None) and (
-            (self.mdl.command.component_type_name != self.component_type_name)
-            or (self.mdl.command.component_name != self.component_name)
-        ):
-            raise ValueError(self.number)
-        if (self.workflow is not None) and (
-            (self.component_type_name != "Workflow")
-            or (
-                self.component_name
-                != ".".join(
-                    [
-                        self.workflow["procDef"]["lifecyclePublicKey"],
-                        self.workflow["procDef"]["publicKey"],
-                    ]
+        if self.mdl is not None:
+            mdl_ctn = self.mdl.command.component_type_name
+            mdl_cn = self.mdl.command.component_name
+            if (mdl_ctn != ctn) or (mdl_cn != cn):
+                raise ValueError(
+                    "The component type name and component name specified in the file "
+                    f"name and within ought to be the same. Got {repr(ctn)} and "
+                    f"{repr(cn)} from the file name, and {repr(mdl_ctn)} "
+                    f"and {repr(mdl_cn)} from MDL, in {repr(self.number)}."
                 )
+        if self.workflow is not None:
+            w_cn = ".".join(
+                [
+                    self.workflow["procDef"]["lifecyclePublicKey"],
+                    self.workflow["procDef"]["publicKey"],
+                ]
             )
-        ):
-            raise ValueError(self.number)
+            if (ctn != "Workflow") or (cn != w_cn):
+                raise ValueError(
+                    "The component type name and component name specified in the file "
+                    f"name and within the workflow JSON file ought to be the same. Got "
+                    f"{repr(ctn)} and {repr(cn)} from the file name, and {repr('Workflow')} "
+                    f"and {repr(w_cn)} from workflow JSON, in {repr(self.number)}."
+                )
 
     def generate_md5(self) -> Md5:
         component_info = ".".join([self.component_type_name, self.component_name])
@@ -254,7 +273,9 @@ class ConfigurationComponent(Component):
             return Md5(hash=md5_hash(self.mdl.raw), component_info=component_info)
         elif self.workflow is not None:
             return Md5(hash=self.workflow["checksum"], component_info=component_info)
-        raise Exception("Unreachable")
+        raise ValueError(
+            f"Could not generate a 'Md5' object for {repr(self.number)} since it contains neither a .mdl file nor a .json file"
+        )
 
     @classmethod
     def load(cls, path: ZipPath) -> ConfigurationComponent:
@@ -265,17 +286,19 @@ class ConfigurationComponent(Component):
             )
         mdl_path = first_child_with_suffix(path, ".mdl")
         json_path = first_child_with_suffix(path, ".json")
-        if (mdl_path is None) and (json_path is None):
-            raise ValueError(
-                f"Expected either a .mdl or .json file in configuration component {str(path)}."
-            )
-        dep_path = first_child_with_suffix(path, ".dep")
         if mdl_path is None and json_path is not None:
             component_type_name, component_name = json_path.stem.split(".", maxsplit=1)
         elif json_path is None and mdl_path is not None:
             component_type_name, component_name = mdl_path.stem.split(".", maxsplit=1)
         else:
-            raise Exception("Unreachable")
+            raise ValueError(
+                f"Expected either a .mdl or .json file in configuration component {str(path)}."
+            )
+        if (ci := f"{component_type_name}.{component_name}") != md5_path.stem:
+            raise ValueError(
+                f"File names for .json/.mdl, and .md5 files ought to be the same. Got {repr(ci)}, and {str(md5_path)}, respectively."
+            )
+        dep_path = first_child_with_suffix(path, ".dep")
         return cls(
             component_type_name=component_type_name,
             component_name=component_name,
