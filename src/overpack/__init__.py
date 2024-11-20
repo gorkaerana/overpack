@@ -7,7 +7,7 @@ from hashlib import md5
 from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import TypeAlias, TypeVar
+from typing import Literal, TypeAlias, TypeVar
 import xml.etree.ElementTree as ET
 from zipfile import Path as ZipPath, ZipFile, is_zipfile
 
@@ -156,11 +156,26 @@ class DataComponent(Component):
     def generate_manifest(
         self,
         object_name: str,
-        data_type: str,
-        action: str,
+        data_type: Literal["Object"],  # TODO: refine type annotation
+        action: Literal["Create", "Upsert"],
+        id_param: str | None = None,
         step_required: bool = False,
         record_migration_mode: bool = False,
     ) -> Manifest:
+        if action == "Create" and id_param is not None:
+            raise ValueError(
+                "If argument 'action' is 'Create', then 'id_param' cannot be provided."
+            )
+        if action == "Upsert" and id_param is None:
+            raise ValueError(
+                "If argument 'action' is 'Upsert', then 'id_param' ought to be provided too."
+            )
+        if action == "Upsert" and not all(
+            id_param in r.keys() for r in self.data.records
+        ):
+            raise ValueError(
+                f"If argument 'action' is 'Upsert', then 'id_param' ought to be a column in the corresponding data. Instead got columns: {', '.join(map(repr, self.data.records[0].keys()))}"
+            )
         d = {
             "stepheader": {
                 "label": self.label,
@@ -168,7 +183,7 @@ class DataComponent(Component):
                 "checksum": self.data.checksum,
                 "datastepheader": {
                     "object": object_name,
-                    "idparam": None,
+                    "idparam": id_param,
                     "datatype": data_type,
                     "action": action,
                     "recordmigrationmode": record_migration_mode,

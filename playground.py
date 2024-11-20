@@ -12,8 +12,8 @@ def f(vpk_path: Path, out_dir: Path) -> Path:
         elif isinstance(c, DataComponent):
             c.generate_manifest(
                 object_name="object_name_placeholder",
-                data_type="data_type_placeholder",
-                action="action_placeholder",
+                data_type="Object",
+                action="Create",
             )
     rp = out_dir / (vpk_path.name if vpk_path.is_file() else f"{vpk_path.stem}.vpk2")
     vpk.dump(rp)
