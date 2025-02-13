@@ -17,15 +17,13 @@ from meddle import Command
 
 
 ZipPathPlus: TypeAlias = Path | ZipPath
-P = TypeVar("P", Path, ZipPath, ZipPathPlus)
+P = TypeVar("P", Path, ZipPath, Path | ZipPath)
 
 Record: TypeAlias = dict[str, str]  # TODO: maybe support more data types?
 
 
 def md5_hash(s: str | bytes) -> str:
-    """A small utility function to compute the MD5 checksum of a given string
-    or bytes `s`
-    """
+    """Compute the MD5 checksum of a given string or bytes `s`"""
     return md5(s.encode() if isinstance(s, str) else s).hexdigest()
 
 
@@ -36,17 +34,18 @@ def first_child_with_suffix(path: P, suffix: str) -> P | None:
     return next((p for p in path.iterdir() if p.suffix.lower() == suffix), None)
 
 
-def has_child_with_suffix(path: ZipPathPlus, suffix: str) -> bool:
+def has_child_with_suffix(path: P, suffix: str) -> bool:
     """Flags whether `path` contains a file underneath with extension `suffix`"""
     return first_child_with_suffix(path, suffix) is not None
 
 
-def is_data_component(path: ZipPathPlus) -> bool:
-    """Checks whether `path`"""
+def is_data_component(path: P) -> bool:
+    """Flags whether a directory `path` is a data compnent"""
     return has_child_with_suffix(path, ".csv") and has_child_with_suffix(path, ".xml")
 
 
-def is_configuration_component(path: ZipPathPlus) -> bool:
+def is_configuration_component(path: P) -> bool:
+    """Flags whether a directory `path` is a configuration compnent"""
     return (
         has_child_with_suffix(path, ".mdl") or has_child_with_suffix(path, ".json")
     ) and has_child_with_suffix(path, ".md5")
@@ -54,6 +53,14 @@ def is_configuration_component(path: ZipPathPlus) -> bool:
 
 @dataclass
 class JavaSdkCode:
+    """An object representing an individual .java file.
+
+    Attributes:
+    - `path`: the path to the file, relative to the VPK package's path the file
+    belongs to.
+    - `content`: the raw text content of the file.
+    """
+
     path: Path
     content: str
 
@@ -102,10 +109,16 @@ class JavaSdkCode:
 
 @dataclass
 class Component:
+    """A base class to represent VPK package components.
+
+    Attributes:
+    - `number`: the folder name of the component, which is always a number.
+    """
+
     number: str
 
     @classmethod
-    def load(cls, path: ZipPathPlus) -> Component:
+    def load(cls, path: P) -> Component:
         raise NotImplementedError
 
     def dump(self, path: Path) -> tuple[Path | None, ...]:
@@ -117,6 +130,9 @@ class Component:
 
 @dataclass
 class Data:
+    """A class representing the tabular data contained within a data component.
+    I.e., the .csv file within a data component directory"""
+
     raw: str
 
     @cached_property
@@ -133,10 +149,19 @@ class Data:
 
 @dataclass
 class Manifest:
+    """A class representing the manifest file of a VPK package. I.e., the
+    "vaultpackage.xml" file in the root path of the VPK package
+
+    Attributes:
+    - `raw`: the string contents of the manifest file
+    """
+
     raw: str
 
     @cached_property
     def parsed(self) -> ET.Element:
+        """A convenience, wrapping `self.raw` into `ET.Element` to more easily
+        inspect the XML contents"""
         return ET.Element(self.raw)
 
     def dumps(self) -> str:
@@ -144,7 +169,8 @@ class Manifest:
 
     def dump(self, path: Path) -> Path:
         """`path` is the one to the VPK root, *before zipping*. E.g.
-        /path/to/package, which will eventually result in /path/to/package.vpk
+        /path/to/package, which will eventually result in /path/to/package.vpk.
+        This method writes to /path/to/package/vaultpackage.xml.
         """
         target_path = path / "vaultpackage.xml"
         target_path.write_text(self.dumps())
@@ -153,6 +179,17 @@ class Manifest:
 
 @dataclass
 class DataComponent(Component):
+    """A class representing a data component, i.e., one folder within the
+    "components" subdirectory of the VPK package
+
+    Atrtibutes:
+    - `label`: the name of the .csv and .xml files contained in the directory.
+    - `data`: a `Data` object representing the tabular data contained in the
+    .csv file of the data component directory.
+    - `manifest`: a `Manifest` object representing the .xml manifest file inside
+    the data component directory.
+    """
+
     label: str
     data: Data
     manifest: Manifest | None = None
@@ -224,7 +261,8 @@ class DataComponent(Component):
 
     def dump(self, path: Path) -> tuple[Path, Path]:
         """`path` is the one to the VPK root, *before zipping*. E.g.
-        /path/to/package, which will eventually result in /path/to/package.vpk
+        /path/to/package, which will eventually result in /path/to/package.vpk.
+        This method writes to f"/path/to/package/components/{self.number}".
         """
         if self.manifest is None:
             # With a better understanding of the contents and structure of a data
@@ -243,6 +281,14 @@ class DataComponent(Component):
 
 @dataclass
 class Md5:
+    """A class representing the .md5 file within a configuration component directory.
+
+    Attributes:
+    - `hash`: a MD5 hash string.
+    - `component_info`: the component type name, dot, the component name. Or in
+    Python, f"{component_type_name}.{component_name}".
+    """
+
     hash: str
     component_info: str
 
@@ -257,10 +303,19 @@ class Md5:
 
 @dataclass
 class Mdl:
+    """A class representing the .mdl file within a configuration component
+    directory.
+
+    Attributes:
+    - `raw`: the raw text of the .mdl file.
+    """
+
     raw: str
 
     @cached_property
     def command(self) -> Command:
+        """A convenience returning `meddle.Command`, and all its associated
+        goodies."""
         return Command.loads(self.raw)
 
     def dumps(self) -> str:
@@ -269,6 +324,21 @@ class Mdl:
 
 @dataclass
 class ConfigurationComponent(Component):
+    """A class representing a configuration component directory.
+
+    Attributes:
+    - `component_type_name`: the component type name of the
+    - `component_name`: the component name
+    - `md5`: a `Md5` object representing the .md5 file within the configuration
+    component directory, if any.
+    - `mdl`: a `Mdl` object representing the .mdl file within the configuration
+    component directory, if any.
+    - `workflow`: a dictionary representing a workflow .json file within the
+    configuration component directory, if any.
+    - `dep`: a `Data` object representing the data in which the configuration
+    component depends on, if any.
+    """
+
     component_type_name: str
     component_name: str
     md5: Md5 | None = None
@@ -358,7 +428,8 @@ class ConfigurationComponent(Component):
 
     def dump(self, path: Path) -> tuple[Path, Path | None, Path | None, Path | None]:
         """`path` is the one to the VPK root, *before zipping*. E.g.
-        /path/to/package, which will eventually result in /path/to/package.vpk
+        /path/to/package, which will eventually result in /path/to/package.vpk.
+        This method writes to f"/path/to/package/components/{self.number}".
         """
         stem = f"{self.component_type_name}.{self.component_name}"
         subdir = path / "components" / self.number
@@ -383,6 +454,20 @@ class ConfigurationComponent(Component):
 
 @dataclass
 class Vpk:
+    """A class representing one VPK package. Note a VPK package is a .zip file,
+    which this class unzips and parses into Python objects.
+
+    Attributes:
+    - `manifest`: `Manifest` object, corresponding to the vaultpackage.xml manifest
+    file in the root path of the VPK package. Refer to `Manifest`'s docstring for
+    extra info.
+    - `components`: list of `ConfigurationComponent` or `DataComponent` objects, each
+    corresponding to one folder inside the "components" subfolder of the package,
+    if any.
+    - `codes`: list of `JavaSdkCode` objects, representing individual .java files
+    under the "javasdk" subdirectory of the package.
+    """
+
     manifest: Manifest
     components: list[Component]
     codes: list[JavaSdkCode]
