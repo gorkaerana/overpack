@@ -10,7 +10,6 @@ requires-python = ">=3.12"
 dependencies = [
     "dict2xml>=1.7.6",
     "meddle",
-    "msgspec>=0.18.6",
 ]
 
 [project.scripts]
@@ -34,3 +33,7 @@ dev = [
 
 [tool.uv.sources]
 meddle = { path = "../mdl" }
+
+[[tool.mypy.overrides]]
+module = ["dict2xml"]
+ignore_missing_imports = true

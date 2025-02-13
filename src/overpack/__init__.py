@@ -1,5 +1,6 @@
 from __future__ import annotations
 import csv
+from dataclasses import dataclass
 import json
 from collections import deque
 from functools import cached_property
@@ -11,10 +12,8 @@ from typing import Literal, TypeAlias, TypeVar
 import xml.etree.ElementTree as ET
 from zipfile import Path as ZipPath, ZipFile, is_zipfile
 
-import dict2xml  # type: ignore
-import msgspec
-
-from meddle import Command  # type: ignore  # TODO: solve this
+import dict2xml
+from meddle import Command
 
 
 ZipPathPlus: TypeAlias = Path | ZipPath
@@ -53,7 +52,8 @@ def is_configuration_component(path: ZipPathPlus) -> bool:
     ) and has_child_with_suffix(path, ".md5")
 
 
-class JavaSdkCode(msgspec.Struct):
+@dataclass
+class JavaSdkCode:
     path: Path
     content: str
 
@@ -100,7 +100,8 @@ class JavaSdkCode(msgspec.Struct):
         return target_path
 
 
-class Component(msgspec.Struct):
+@dataclass
+class Component:
     number: str
 
     @classmethod
@@ -114,7 +115,8 @@ class Component(msgspec.Struct):
         return f"{self.__class__.__name__}(number={repr(self.number)})"
 
 
-class Data(msgspec.Struct, dict=True):
+@dataclass
+class Data:
     raw: str
 
     @cached_property
@@ -129,7 +131,8 @@ class Data(msgspec.Struct, dict=True):
         return self.raw
 
 
-class Manifest(msgspec.Struct, dict=True):
+@dataclass
+class Manifest:
     raw: str
 
     @cached_property
@@ -148,6 +151,7 @@ class Manifest(msgspec.Struct, dict=True):
         return target_path
 
 
+@dataclass
 class DataComponent(Component):
     label: str
     data: Data
@@ -237,7 +241,8 @@ class DataComponent(Component):
         return csv_path, xml_path
 
 
-class Md5(msgspec.Struct):
+@dataclass
+class Md5:
     hash: str
     component_info: str
 
@@ -250,7 +255,8 @@ class Md5(msgspec.Struct):
         return f"{self.hash} {self.component_info}"
 
 
-class Mdl(msgspec.Struct, dict=True):
+@dataclass
+class Mdl:
     raw: str
 
     @cached_property
@@ -261,6 +267,7 @@ class Mdl(msgspec.Struct, dict=True):
         return self.raw
 
 
+@dataclass
 class ConfigurationComponent(Component):
     component_type_name: str
     component_name: str
@@ -374,7 +381,8 @@ class ConfigurationComponent(Component):
         return md5_path, mdl_path, workflow_path, dep_path
 
 
-class Vpk(msgspec.Struct):
+@dataclass
+class Vpk:
     manifest: Manifest
     components: list[Component]
     codes: list[JavaSdkCode]
