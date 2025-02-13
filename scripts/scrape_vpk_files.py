@@ -1,11 +1,19 @@
+# /// script
+# dependencies = [
+#     "httpx"
+# ]
+# ///
 """
-Scrapped all .vpk files under the "veeva" GitHub user. Requires "GITHUB_TOKEN"
+Scrape all .vpk files under the "veeva" GitHub user. Requires "GITHUB_TOKEN"
 environment variable
 
-Usage: `python3 scrape_mdl_files.py -o /path/to/wherever/you/want/the/scrapped/files`
+Usage:
+```bash
+GITHUB_TOKEN=<your GitHub token> python3 scrape_mdl_files.py -o /path/to/wherever/you/want/the/scrapped/files
+# Alternatively
+GITHUB_TOKEN=<your GitHub token> uv run scrape_mdl_files.py -o /path/to/wherever/you/want/the/scrapped/files
+```
 """
-# TODO: how worth it is it to make this into a standalone script as per `uv`'s
-# documentation? See https://docs.astral.sh/uv/guides/scripts/#declaring-script-dependencies
 
 from argparse import ArgumentParser
 from base64 import b64decode
@@ -118,9 +126,10 @@ def main(out_dir: Path):
     """Iterate over all repositories and files under GitHub user `veeva`, and save
     to `out_dir` those with extension `.mdl`.
     """
-    (out_dir / "README.md").write_text(
+    (readme_path := out_dir / "README.md").write_text(
         f"Content scrapped with `{Path(__file__).relative_to(here.parent)}`"
     )
+    print(f"Wrote {readme_path}")
     outdir_to_url = {}
     github_client = GithubClient(os.environ["GITHUB_TOKEN"])
     for repo_metadata in user_repos("veeva", github_client):
@@ -131,9 +140,9 @@ def main(out_dir: Path):
                 continue
             out_path = download_vpk_file(blob_metadata, github_client, out_dir)
             outdir_to_url[str(out_path)] = repo_url
-
-    sources_path = out_dir / "source_urls.json"
-    sources_path.write_text(json.dumps(outdir_to_url, indent=4))
+    (sources_path := out_dir / "source_urls.json").write_text(
+        json.dumps(outdir_to_url, indent=4)
+    )
     print(f"Wrote {sources_path}")
 
 
