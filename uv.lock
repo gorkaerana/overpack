@@ -186,14 +186,10 @@ version = "0.1.0"
 source = { directory = "../mdl" }
 dependencies = [
     { name = "lark" },
-    { name = "msgspec" },
 ]
 
 [package.metadata]
-requires-dist = [
-    { name = "lark", specifier = ">=1.1.9" },
-    { name = "msgspec", specifier = ">=0.18.6" },
-]
+requires-dist = [{ name = "lark", specifier = ">=1.1.9" }]
 
 [package.metadata.requires-dev]
 dev = [
@@ -201,6 +197,7 @@ dev = [
     { name = "httpx", specifier = ">=0.27.2" },
     { name = "ipython", specifier = ">=8.12.3" },
     { name = "markdown-it-py", specifier = ">=3.0.0" },
+    { name = "msgspec", specifier = ">=0.18.6" },
     { name = "mypy", specifier = ">=1.13.0" },
     { name = "py", specifier = ">=1.11.0" },
     { name = "pyright", specifier = ">=1.1.387" },
@@ -210,21 +207,6 @@ dev = [
     { name = "rich", specifier = ">=13.9.4" },
     { name = "ruff", specifier = ">=0.7.1" },
     { name = "types-beautifulsoup4", specifier = ">=4.12.0.20241020" },
-]
-
-[[package]]
-name = "msgspec"
-version = "0.18.6"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/5e/fb/42b1865063fddb14dbcbb6e74e0a366ecf1ba371c4948664dde0b0e10f95/msgspec-0.18.6.tar.gz", hash = "sha256:a59fc3b4fcdb972d09138cb516dbde600c99d07c38fd9372a6ef500d2d031b4e", size = 216757 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/1d/b5/c8fbf1db814eb29eda402952374b594b2559419ba7ec6d0997a9e5687530/msgspec-0.18.6-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:d86f5071fe33e19500920333c11e2267a31942d18fed4d9de5bc2fbab267d28c", size = 202109 },
-    { url = "https://files.pythonhosted.org/packages/d7/9a/235d2dbab078a0b8e6f338205dc59be0b027ce000554ee6a9c41b19339e5/msgspec-0.18.6-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:ce13981bfa06f5eb126a3a5a38b1976bddb49a36e4f46d8e6edecf33ccf11df1", size = 190281 },
-    { url = "https://files.pythonhosted.org/packages/0e/f2/f864ed36a8a62c26b57c3e08d212bd8f3d12a3ca3ef64600be5452aa3c82/msgspec-0.18.6-cp312-cp312-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:e97dec6932ad5e3ee1e3c14718638ba333befc45e0661caa57033cd4cc489466", size = 210305 },
-    { url = "https://files.pythonhosted.org/packages/73/16/dfef780ced7d690dd5497846ed242ef3e27e319d59d1ddaae816a4f2c15e/msgspec-0.18.6-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ad237100393f637b297926cae1868b0d500f764ccd2f0623a380e2bcfb2809ca", size = 212510 },
-    { url = "https://files.pythonhosted.org/packages/c1/90/f5b3a788c4b3d92190e3345d1afa3dd107d5f16b8194e1f61b72582ee9bd/msgspec-0.18.6-cp312-cp312-musllinux_1_1_aarch64.whl", hash = "sha256:db1d8626748fa5d29bbd15da58b2d73af25b10aa98abf85aab8028119188ed57", size = 214844 },
-    { url = "https://files.pythonhosted.org/packages/ce/0b/d4cc1b09f8dfcc6cc4cc9739c13a86e093fe70257b941ea9feb15df22996/msgspec-0.18.6-cp312-cp312-musllinux_1_1_x86_64.whl", hash = "sha256:d70cb3d00d9f4de14d0b31d38dfe60c88ae16f3182988246a9861259c6722af6", size = 217113 },
-    { url = "https://files.pythonhosted.org/packages/3f/76/30d8f152299f65c85c46a2cbeaf95ad1d18516b5ce730acdaef696d4cfe6/msgspec-0.18.6-cp312-cp312-win_amd64.whl", hash = "sha256:1003c20bfe9c6114cc16ea5db9c5466e49fae3d7f5e2e59cb70693190ad34da0", size = 187184 },
 ]
 
 [[package]]
@@ -275,7 +257,6 @@ source = { editable = "." }
 dependencies = [
     { name = "dict2xml" },
     { name = "meddle" },
-    { name = "msgspec" },
 ]
 
 [package.dev-dependencies]
@@ -294,7 +275,6 @@ dev = [
 requires-dist = [
     { name = "dict2xml", specifier = ">=1.7.6" },
     { name = "meddle", directory = "../mdl" },
-    { name = "msgspec", specifier = ">=0.18.6" },
 ]
 
 [package.metadata.requires-dev]
